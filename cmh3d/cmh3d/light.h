@@ -4,11 +4,8 @@
 #include "vertex.h"
 
 typedef struct {
-  vertex locationVertex;
-  vertex shineAtVertex;
-  float red;
-  float green;
-  float blue;
+  vertex locationVertex,shineAtVertex;
+  float red,green,blue;
 } light;
 
 #endif /* LIGHT_H */

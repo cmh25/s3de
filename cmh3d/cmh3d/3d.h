@@ -6,9 +6,7 @@
 #include "light.h"
 
 typedef struct {
-  vertex* v0;
-  vertex* v1;
-  vertex* v2;
+  vertex *v0, *v1, *v2;
   vector normal;
   float A, B, C, D;
   int type; /* l r t b n f - useful for viewport clipping */

@@ -7,23 +7,14 @@
 #include "3d.h"
 
 typedef struct {
-  vertex locationVertex;
-  vertex lookAtVertex;
-  vertex U;
-  vertex V;
-  vertex N;
-  vector Uvector;
-  vector Vvector;
-  vector Nvector;
+  vertex locationVertex,lookAtVertex;
+  vertex U,V,N;
+  vector Uvector,Vvector,Nvector;
   float distanceToViewPlane;
-  float viewPlaneWidth;
-  float viewPlaneHeight;
-  float clipNear;
-  float clipFar;
-  float clipUnit;
-  matrix4x4 viewMatrix;
-  matrix4x4 viewLookAtMatrix;
-  vertex ltn, rtn, lbn, rbn, ltf, rtf, lbf, rbf;
+  float viewPlaneWidth,viewPlaneHeight;
+  float clipNear,clipFar,clipUnit;
+  matrix4x4 viewMatrix,viewLookAtMatrix;
+  vertex ltn,rtn,lbn,rbn,ltf,rtf,lbf,rbf;
   plane clipPlanes[6];
 } camera;
 
