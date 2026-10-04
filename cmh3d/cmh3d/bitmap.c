@@ -14,7 +14,9 @@ unsigned char* readBmp(char* fileName, unsigned int* biWidth, unsigned int* biHe
   unsigned int i,j;
   int k,pad;
 
-  if((fp = fopen(fileName, "r")) == NULL) {
+  /* "rb": in text mode the Windows CRT turns CR LF into LF and treats 0x1A as
+  end of file, which corrupts or truncates any texture containing those bytes */
+  if((fp = fopen(fileName, "rb")) == NULL) {
     fprintf(stderr, "Unable to open bitmap file: \"%s\"\n", fileName);
     return NULL;
   }
@@ -38,16 +40,16 @@ unsigned char* readBmp(char* fileName, unsigned int* biWidth, unsigned int* biHe
     exit(1);
   }
 
-  /* find size and allocate pbuffer */
-  if((pbuffer = malloc(*biWidth * *biHeight * sizeof(int) * 3)) == NULL) {
+  /* find size and allocate pbuffer: three bytes (r,g,b) per pixel */
+  if((pbuffer = malloc((size_t)*biWidth * *biHeight * 3)) == NULL) {
     fprintf(stderr, "malloc failed for pbuffer in readBmp()!\n");
     fclose(fp);
     exit(1);
   }
 
   /* finally, time to read
-  in the bitmap file, the order is blue green red in uints
-  we want pbuffer to have red green blue in floats (0.0 - 1.0)
+  in the bitmap file, the order is blue green red, one byte each
+  we want pbuffer to have red green blue bytes with the top row first
   the rows are ordered bottom to top in the file and each
   row is zero-padded to a 4-byte boundary */
   pad = 4 - (*biWidth*3) % 4;

@@ -148,8 +148,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         DestroyWindow(hWnd);
         break;
       case ID_FILE_OPEN:
-        FreeWorld(gworld);
-
         ZeroMemory(&ofn, sizeof(ofn));
         ofn.lStructSize = sizeof(ofn);
         ofn.hwndOwner = NULL;
@@ -165,6 +163,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         ofn.Flags = 0;
         if(!GetOpenFileName(&ofn)) return 0;
 
+        /* free the old world only once there is a new file to load: the main
+        loop keeps rendering gworld, so freeing it before a dialog that can be
+        cancelled left it rendering freed memory */
+        FreeWorld(gworld);
         gworld = InitializeWorld(sz);
         GetClientRect(hWnd, &gr);
         GetWindowRect(hwndSB, &rs);

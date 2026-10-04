@@ -21,6 +21,10 @@
 #define CLIPPED_NEAR   0x0010
 #define CLIPPED_FAR    0x0020
 
+/* a triangle clipped against the six view planes can gain one vertex per plane,
+   so a buffer passed to ClipTriangleToView() must hold this many vertices */
+#define MAX_CLIPPED_VERTICES 9
+
 #ifdef __cplusplus
 extern "C" {
 #endif

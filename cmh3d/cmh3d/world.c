@@ -20,8 +20,10 @@
 static vertex *vlist0,*vlist1,*vlist2,*tnvlist,*vnvlist;
 static triangle *tlist0,*tlist1,*tlist2,*tlist3,**tpa;
 static unsigned int vcount0,vcount1,vcount2,tcount0,tcount1,tcount2,clippedvcount,clippedtcount,culltcount,tnvcount,vnvcount;
+static unsigned int vcap2,tcap2; /* capacities of vlist2 and tlist2 */
 static world* pw;
 static camera* pcam;
+static light viewLight; /* lightList[0] transformed into view space for the current frame */
 static float* zbuffer,m_vnlen=5.0f,m_tnlen=5.0f;
 static int shadeState,screenwidth=640,screenheight=480;
 
@@ -71,6 +73,7 @@ void FreeWorld(world* w) {
   if(tlist1) { free(tlist1); tlist1 = 0; }
   if(tlist2) { free(tlist2); tlist2 = 0; }
   vcount0 = vcount1 = vcount2 = tcount0 = tcount1 = tcount2 = clippedvcount = 0;
+  vcap2 = tcap2 = 0;
   for(i=0;i<w->matCount;i++) {
     if(w->materials[i].ptexture) {
       free(w->materials[i].ptexture);
@@ -150,6 +153,9 @@ world* InitializeWorld(char *fn) {
     exit(1);
   }
   pw = w;
+  /* derive the view plane height and the clip planes from the current screen
+  size, so the world renders even if the host never calls SetScreenW/SetScreenH */
+  SetScreenH(screenheight);
   return w;
 }
 
@@ -195,6 +201,12 @@ static void WorldToView() {
   SetViewMatrix(pcam);
   for(i=0;i<pw->vcount;i++)
     MatrixMultiply1x4_4x4(&pw->vlist[i], pcam->viewMatrix);
+
+  /* the light lives in world space like everything else, but shading happens
+  in view space, so bring it along. without this the light followed the camera */
+  viewLight = pw->lightList[0];
+  MatrixMultiply1x4_4x4(&viewLight.locationVertex, pcam->viewMatrix);
+  MatrixMultiply1x4_4x4(&viewLight.shineAtVertex, pcam->viewMatrix);
 }
 
 static void PreClip() {
@@ -338,9 +350,9 @@ static void GenerateNormals() {
       cv->y /= 3.0f;
       cv->z /= 3.0f;
       memcpy(nv, cv, sizeof(vertex));
-      nv->x += tlist[i].normal.x * 5.0f;
-      nv->y += tlist[i].normal.y * 5.0f;
-      nv->z += tlist[i].normal.z * 5.0f;
+      nv->x += tlist[i].normal.x * m_tnlen;
+      nv->y += tlist[i].normal.y * m_tnlen;
+      nv->z += tlist[i].normal.z * m_tnlen;
       nv->h = 1.0f;
 
       cv->red = 255.0f;
@@ -366,9 +378,9 @@ static void GenerateNormals() {
       nv = &vnvlist[vnvcount++];
       memcpy(cv, &vlist[i], sizeof(vertex));
       memcpy(nv, &vlist[i], sizeof(vertex));
-      nv->x += cv->normal.x * 5.0f;
-      nv->y += cv->normal.y * 5.0f;
-      nv->z += cv->normal.z * 5.0f;
+      nv->x += cv->normal.x * m_vnlen;
+      nv->y += cv->normal.y * m_vnlen;
+      nv->z += cv->normal.z * m_vnlen;
 
       cv->red = 255.0f;
       cv->green = 0.0f;
@@ -408,8 +420,7 @@ static void Clip() {
   unsigned int i,j,cvc,v0i,v1i,v2i;
   triangle* tlist = pw->tlist;
   vertex* vlist = pw->vlist;
-  vertex clippedVList[7];
-  static unsigned int mv=32,mt=32;
+  vertex clippedVList[MAX_CLIPPED_VERTICES];
 
   vcount2 = tcount2 = 0;
   for(i = 0; i < pw->tcount; i++) {
@@ -419,16 +430,19 @@ static void Clip() {
     /* fully clipped? */
     if(!cvc) continue;
 
-    /* a partially clipped triangle (three vertices) may result in up to
-    five triangles (seven vertices) */
-    if(!vlist2 || vcount2 + 7 > mv) {
-      mv <<= 1;
-      vlist2 = (vertex*)realloc(vlist2, sizeof(vertex) * mv);
+    /* each of the six clip planes can add one vertex, so a triangle comes back
+    with up to MAX_CLIPPED_VERTICES vertices, fanned into two fewer triangles.
+    the capacities persist across frames and are reset by FreeWorld() */
+    if(vcount2 + MAX_CLIPPED_VERTICES > vcap2) {
+      vcap2 = vcap2 ? vcap2 * 2 : 256;
+      while(vcount2 + MAX_CLIPPED_VERTICES > vcap2) vcap2 *= 2;
+      vlist2 = (vertex*)realloc(vlist2, sizeof(vertex) * vcap2);
       if(!vlist2) { fprintf(stderr, "malloc failed for newVList in Clip()\n"); exit(1); }
     }
-    if(!tlist2 || tcount2 + 5 > mt) {
-      mt <<= 1;
-      tlist2 = (triangle*)realloc(tlist2, sizeof(triangle) * mt);
+    if(tcount2 + MAX_CLIPPED_VERTICES - 2 > tcap2) {
+      tcap2 = tcap2 ? tcap2 * 2 : 256;
+      while(tcount2 + MAX_CLIPPED_VERTICES - 2 > tcap2) tcap2 *= 2;
+      tlist2 = (triangle*)realloc(tlist2, sizeof(triangle) * tcap2);
       if(!tlist2) { fprintf(stderr, "malloc failed for newTList in Clip()\n"); exit(1); }
     }
 
@@ -551,7 +565,6 @@ static void Render() {
   unsigned int i;
   vertex* vlist = pw->vlist;
   triangle* tlist = pw->tlist;
-  extern void* g_pScreen;
   unsigned int zbuffsize = screenwidth * screenheight;
   static unsigned int zz = 0;
 
@@ -569,7 +582,7 @@ static void Render() {
   for(i=0;i<pw->tcount;i++) {
     if(!tpa[i]->visible) break;
     tpa[i]->pvlist = vlist;
-    ShadeTriangle(tpa[i], &pw->lightList[0], zbuffer, shadeState);
+    ShadeTriangle(tpa[i], &viewLight, zbuffer, shadeState);
   }
 
   if(shadeState & SHADE_TNORMAL) {

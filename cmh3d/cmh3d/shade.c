@@ -324,6 +324,7 @@ static void CalcSpecular(vector* normal) {
 
 static void CalColorIntensity(vector* normal) {
   m_red = m_green = m_blue = 0.0;
+  m_specComp = 0.0f; /* otherwise the last value computed with SHADE_SPECULAR on leaks into later frames */
   if(m_shadeState & SHADE_AMBIENT) CalcAmbient();
   if(m_shadeState & SHADE_DIFFUSE) CalcDiffuse(normal);
   if(m_shadeState & SHADE_SPECULAR) CalcSpecular(normal);
@@ -366,18 +367,21 @@ static int CalcColorFromMaterial(int j) {
     m_hU[j] *= m_pmat->uScale;
     m_hV[j] *= m_pmat->vScale;
 
-    if(m_hU[j] > 1.0)m_hU[j] -= (int)m_hU[j];
-    if(m_hV[j] > 1.0)m_hV[j] -= (int)m_hV[j];
-
     /* we can apply a procedure to the texture here if we want
     by manipulating m_hU[j] and m_hV[j] */
 
-    /* normalize to [0,1], handle tiling */
-    m_hV[j] *= -1;
-    while (m_hU[j] < 0.0f) m_hU[j] += 1.0f;
-    while (m_hV[j] < 0.0f) m_hV[j] += 1.0f;
-    while (m_hU[j] > 1.0f) m_hU[j] -= 1.0f;
-    while (m_hV[j] > 1.0f) m_hV[j] -= 1.0f;
+    /* wrap into [0,1] for tiling. values of exactly 0 or 1 are left alone so
+    the edge of a face samples the edge texel instead of the opposite one */
+    if(m_hU[j] < 0.0f || m_hU[j] > 1.0f) m_hU[j] -= floorf(m_hU[j]);
+    if(m_hV[j] < 0.0f || m_hV[j] > 1.0f) m_hV[j] -= floorf(m_hV[j]);
+    /* NaN or infinity (from a degenerate z) would index outside the texture */
+    if(!(m_hU[j] >= 0.0f && m_hU[j] <= 1.0f)) m_hU[j] = 0.0f;
+    if(!(m_hV[j] >= 0.0f && m_hV[j] <= 1.0f)) m_hV[j] = 0.0f;
+
+    /* v grows upward but texture rows are stored top to bottom, so flip it.
+    1-v keeps v=0 on the bottom row. the old -v followed by wrapping sent
+    exactly 0 to the top row: a one pixel seam along every edge where v is 0 */
+    m_hV[j] = 1.0f - m_hV[j];
 
     m_hU[j] *= (float)(m_pmat->textureWidth - 1);
     m_hV[j] *= (float)(m_pmat->textureHeight - 1);
@@ -385,8 +389,12 @@ static int CalcColorFromMaterial(int j) {
     if(m_shadeState & SHADE_BILINEAR) {
       u0 = floorf(m_hU[j]);
       v0 = floorf(m_hV[j]);
-      u1 = floorf(m_hU[j] + 1.0f);
-      v1 = floorf(m_hV[j] + 1.0f);
+      u1 = u0 + 1.0f;
+      v1 = v0 + 1.0f;
+      /* on the last texel the neighbour lies outside the texture. its weight
+      is zero there, so clamping changes nothing but the address read */
+      if(u1 > (float)(m_pmat->textureWidth - 1)) u1 = (float)(m_pmat->textureWidth - 1);
+      if(v1 > (float)(m_pmat->textureHeight - 1)) v1 = (float)(m_pmat->textureHeight - 1);
  
       weightBottom = m_hV[j] - v0;
       weightTop = 1.0f - weightBottom;
