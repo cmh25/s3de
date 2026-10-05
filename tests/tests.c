@@ -168,6 +168,36 @@ static int render(world* w, int shade) {
   return DrawScene(w);
 }
 
+/* an untextured grey mesh from explicit vertices and triangles, lit by diffuse only */
+static world* makeMesh(const float* xyz, unsigned int nverts, const unsigned int* tris, unsigned int ntris) {
+  world* w = InitializeWorld(NULL);
+  material* m;
+  object* o;
+  unsigned int i;
+
+  if(!w) return NULL;
+  m = &w->materials[0];
+  m->name = NULL;
+  m->r = m->g = m->b = 200.0f;
+  m->ka = 0.0f; m->kd = 1.0f; m->ks = 0.0f; m->ns = 1.0f;
+  m->uScale = m->vScale = 1.0f;
+  w->matCount = 1;
+
+  o = &w->objectList[0];
+  o->vlist = (vertex*)calloc(nverts, sizeof(vertex));
+  o->tlist = (triangle*)calloc(ntris, sizeof(triangle));
+  if(!o->vlist || !o->tlist) { free(o->vlist); free(o->tlist); FreeWorld(w); return NULL; }
+  o->vcount = nverts; o->tcount = ntris;
+  w->objectCount = 1;
+  for(i = 0; i < nverts; i++) {
+    o->vlist[i].x = xyz[i*3]; o->vlist[i].y = xyz[i*3+1]; o->vlist[i].z = xyz[i*3+2]; o->vlist[i].h = 1.0f;
+  }
+  for(i = 0; i < ntris; i++) {
+    o->tlist[i].v0 = tris[i*3]; o->tlist[i].v1 = tris[i*3+1]; o->tlist[i].v2 = tris[i*3+2]; o->tlist[i].pmat = m;
+  }
+  return w;
+}
+
 /* ---- tests ------------------------------------------------------------- */
 
 /* readBmp() must read in binary mode. in text mode the Windows CRT turned
@@ -403,6 +433,59 @@ static void testLightInWorldSpace(void) {
   report("light_in_world_space", ok, detail);
 }
 
+/* two faces meeting at a right angle along a ridge. each ridge vertex gets the
+   combined normal of both faces, which must be renormalized: with the light
+   along the ridge's bisector the ridge must be fully lit. the plain average
+   was only 71% long and left it that much darker */
+static void testGouraudRidgeNormals(void) {
+  static const float xyz[6*3] = { 0,-15,-40,  0,15,-40,  -20,-15,-60,  -20,15,-60,  20,-15,-60,  20,15,-60 };
+  static const unsigned int tris[4*3] = { 0,3,2,  0,1,3,  0,4,5,  0,5,1 };
+  world* w = makeMesh(xyz, 6, tris, 4);
+  const unsigned char* p;
+  int ok;
+  char detail[120] = "";
+  if(!w) { report("gouraud_ridge_normals", 0, "cannot build the scene"); return; }
+  w->lightList[0].locationVertex.x = 0.0f;
+  w->lightList[0].locationVertex.y = 0.0f;
+  w->lightList[0].locationVertex.z = 100.0f;   /* straight down the ridge's bisector */
+  if(!render(w, SHADE_GOURAUD | SHADE_DIFFUSE)) { report("gouraud_ridge_normals", 0, GetLastEngineError()); FreeWorld(w); return; }
+  p = pixelAt(WIDTH / 2, HEIGHT / 2);
+  ok = p[0] >= 196 && p[0] <= 200 && p[1] == p[0] && p[2] == p[0];
+  if(!ok) sprintf(detail, "ridge pixel is %s, expected about (200,200,200)", colourName(p));
+  FreeWorld(w);
+  report("gouraud_ridge_normals", ok, detail);
+}
+
+/* the highlight must sit where the normal bisects the directions to the light
+   and to the viewer (blinn-phong), not where the surface faces the light. with
+   the light 60 degrees off the view axis, a quad tilted 30 degrees bisects them
+   and must show the full highlight; one tilted 60 degrees faces the light
+   head-on and must show none. the old (n dot l)^n model had that backwards */
+static void testBlinnPhongHighlight(void) {
+  static const float tilts[2] = { 30.0f, 60.0f };
+  static const int expected[2] = { 127, 0 };
+  int t, ok = 1;
+  char detail[160] = "";
+  for(t = 0; t < 2 && ok; t++) {
+    world* w = makeQuad(UV_NORMAL, tilts[t], 0.0f, NULL);
+    const unsigned char* p;
+    if(!w) { report("blinn_phong_highlight", 0, "cannot build the scene"); return; }
+    w->materials[0].ka = 0.0f; w->materials[0].kd = 0.0f;   /* highlight only */
+    w->materials[0].ks = 0.5f; w->materials[0].ns = 150.0f;
+    w->lightList[0].locationVertex.x = 86.6f;
+    w->lightList[0].locationVertex.y = 0.0f;
+    w->lightList[0].locationVertex.z = 50.0f;
+    if(!render(w, SHADE_PHONG | SHADE_SPECULAR | SHADE_DIFFUSE)) { report("blinn_phong_highlight", 0, GetLastEngineError()); FreeWorld(w); return; }
+    p = pixelAt(WIDTH / 2, HEIGHT / 2);
+    if(abs(p[0] - expected[t]) > 3 || p[1] != p[0] || p[2] != p[0]) {
+      ok = 0;
+      sprintf(detail, "quad tilted %g degrees: centre pixel %s, expected about %d", tilts[t], colourName(p), expected[t]);
+    }
+    FreeWorld(w);
+  }
+  report("blinn_phong_highlight", ok, detail);
+}
+
 /* loading and freeing worlds repeatedly must not grow the clip buffers
    without bound. their capacity used to double on every reload */
 static void testReloadCycles(void) {
@@ -429,6 +512,8 @@ int main(void) {
   testTextureSeamV0(1);
   testSpecularNoLeak();
   testLightInWorldSpace();
+  testGouraudRidgeNormals();
+  testBlinnPhongHighlight();
   testReloadCycles();
   printf("%d failure%s\n", failures, failures == 1 ? "" : "s");
   return failures;

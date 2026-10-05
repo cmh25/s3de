@@ -70,6 +70,7 @@ static void FreeWorldContents(world* w) {
   for(i=0;i<w->matCount;i++) {
     if(w->materials[i].ptexture) free(w->materials[i].ptexture);
     if(w->materials[i].name) free(w->materials[i].name);
+    if(w->materials[i].specTable) free(w->materials[i].specTable);
   }
   for(i=0;i<w->objectCount;i++) {
     if(w->objectList[i].vlist) free(w->objectList[i].vlist);
@@ -254,7 +255,6 @@ static int GenerateNormals() {
   vector v0, v1;
   vertex* vlist = pw->vlist;
   triangle* tlist = pw->tlist;
-  float fncountinv;
   vertex *cv, *nv;
 
   if(shadeState & (SHADE_GOURAUD | SHADE_PHONG | SHADE_VNORMAL)) {
@@ -279,13 +279,12 @@ static int GenerateNormals() {
       vlist[tlist[i].v2].fncount++;
     }
 
-    /* average vertex normals */
+    /* the sum of unit face normals is shorter than one wherever faces diverge,
+    so normalize rather than average: n dot l needs a unit normal, or corners
+    come out too dark */
     for(i=0;i<pw->vcount;i++) {
       if(vlist[i].fncount != 0) {
-        fncountinv = 1.0f / vlist[i].fncount;
-        vlist[i].normal.x *= fncountinv;
-        vlist[i].normal.y *= fncountinv;
-        vlist[i].normal.z *= fncountinv;
+        NormalizeVector(&vlist[i].normal);
         vlist[i].normal.h = 1.0f;
       }
     }
@@ -575,10 +574,11 @@ static int Render() {
     vlist[i].iy = (int)(vlist[i].y+0.5);
   }
 
+  SetShadeLight(&viewLight);
   for(i=0;i<pw->tcount;i++) {
     if(!tpa[i]->visible) break;
     tpa[i]->pvlist = vlist;
-    ShadeTriangle(tpa[i], &viewLight, zbuffer, shadeState);
+    ShadeTriangle(tpa[i], zbuffer, shadeState);
   }
 
   if(shadeState & SHADE_TNORMAL) {

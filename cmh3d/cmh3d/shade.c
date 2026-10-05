@@ -50,7 +50,8 @@ static light* m_plight;
 static float* m_zbuffer;
 static int m_tritype;
 static int m_nhlines;
-static vector m_toLight;
+static vector m_toLight;     /* unit vector towards the light, view space */
+static vector m_halfVector;  /* unit vector halfway between the light and the viewer */
 static int m_shadeState;
 
 static float m_ambientRed;
@@ -289,11 +290,7 @@ static void CalcAmbient() {
 static void CalcDiffuse(vector* normal) {
   float dot;
 
-  VectorFromTo(&m_toLight, &m_plight->shineAtVertex, &m_plight->locationVertex);
-  NormalizeVector(&m_toLight);
-
-  /* abs(-L dot N) is somewhere between 0 and 1
-  multiply that value by each m_color component */
+  /* lambert: n dot l, with l pointing at the light (set up once per frame by SetShadeLight) */
   dot = VectorDotProduct(normal, &m_toLight);
   /* shading normals are not in perspective space, so it is possible to
   have a negative dot product. */
@@ -304,16 +301,37 @@ static void CalcDiffuse(vector* normal) {
   m_blue += m_pmat->kd * m_plight->blue * dot;
 }
 
+#define SPEC_TABLE_SIZE 1024
+
+/* x to the power of the material's exponent, from a table built on first use,
+   with linear interpolation between entries. far cheaper than powf per pixel */
+static float SpecularPower(float x) {
+  const float* t;
+  float scaled, frac;
+  int i;
+
+  if(!m_pmat->specTable || m_pmat->specTableNs != m_pmat->ns) {
+    float* built = (float*)realloc(m_pmat->specTable, (SPEC_TABLE_SIZE + 1) * sizeof(float));
+    if(!built) return powf(x, m_pmat->ns); /* out of memory: the slow way still works */
+    for(i = 0; i <= SPEC_TABLE_SIZE; i++) built[i] = powf((float)i / SPEC_TABLE_SIZE, m_pmat->ns);
+    m_pmat->specTable = built;
+    m_pmat->specTableNs = m_pmat->ns;
+  }
+  t = m_pmat->specTable;
+  scaled = x * SPEC_TABLE_SIZE;
+  i = (int)scaled;
+  if(i >= SPEC_TABLE_SIZE) return t[SPEC_TABLE_SIZE];
+  frac = scaled - (float)i;
+  return t[i] + frac * (t[i + 1] - t[i]);
+}
+
 static void CalcSpecular(vector* normal) {
-  float dot;
-
-  VectorFromTo(&m_toLight, &m_plight->shineAtVertex, &m_plight->locationVertex);
-  NormalizeVector(&m_toLight);
-
-  /* abs(-L dot N) is somewhere between 0 and 1
-  multiply that value by each m_color component */
-  dot = fabsf(VectorDotProduct(normal, &m_toLight));
-  m_specComp = m_pmat->ks * powf(dot, m_pmat->ns) * 255.0f;
+  /* blinn-phong: the highlight peaks where the normal bisects the directions
+  to the light and to the viewer, so it moves as the camera moves. nothing
+  for surfaces facing away from the light */
+  float nDotH = VectorDotProduct(normal, &m_halfVector);
+  if(nDotH <= 0.0f || VectorDotProduct(normal, &m_toLight) <= 0.0f) return;
+  m_specComp = m_pmat->ks * SpecularPower(nDotH) * 255.0f;
 }
 
 static void CalColorIntensity(vector* normal) {
@@ -326,9 +344,6 @@ static void CalColorIntensity(vector* normal) {
 
 static void SetVertexColors() {
   vertex* vlist = m_ptri->pvlist;
-
-  VectorFromTo(&m_toLight, &m_plight->shineAtVertex, &m_plight->locationVertex);
-  NormalizeVector(&m_toLight);
 
   CalColorIntensity(&vlist[m_ptri->v0].normal);
   vlist[m_ptri->v0].red = m_red;
@@ -596,9 +611,6 @@ static void ShadePhong() {
   ScanEdge1OverZ();
   ScanEdgeNormals();
 
-  VectorFromTo(&m_toLight, &m_plight->shineAtVertex, &m_plight->locationVertex);
-  NormalizeVector(&m_toLight);
-
   for(i=0;i<m_nhlines;i++) {
     if(m_ystart >= m_screenheight) break;;
     if(m_ystart < 0) { m_ystart++;  continue; }
@@ -634,9 +646,25 @@ static void ShadePhong() {
   }
 }
 
-void ShadeTriangle(triangle* ptri, light* plight, float* zbuffer, int shadeState) {
-  m_ptri = ptri;
+void SetShadeLight(light* plight) {
   m_plight = plight;
+  /* the light is directional: location minus target. shading happens in view
+  space and the light arrives already transformed, so this one vector serves
+  every pixel of the frame */
+  VectorFromTo(&m_toLight, &plight->shineAtVertex, &plight->locationVertex);
+  NormalizeVector(&m_toLight);
+  /* the viewer sits at the view-space origin looking down -z. treating it as
+  distant makes the direction to it (0,0,1) everywhere, so the half vector
+  for the highlight is also one vector per frame */
+  m_halfVector.x = m_toLight.x;
+  m_halfVector.y = m_toLight.y;
+  m_halfVector.z = m_toLight.z + 1.0f;
+  m_halfVector.h = 1.0f;
+  NormalizeVector(&m_halfVector);
+}
+
+void ShadeTriangle(triangle* ptri, float* zbuffer, int shadeState) {
+  m_ptri = ptri;
   m_zbuffer = zbuffer;
   m_shadeState = shadeState;
   m_pmat = ptri->pmat;

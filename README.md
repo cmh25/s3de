@@ -38,8 +38,9 @@ for the usage line.
 
 Prints one line per test and exits with the number of failures. The tests
 cover texture edge orientation and the exact-zero seam, specular state
-leaking between frames, the world-space light, the clipper's vertex count,
-binary-mode texture loading, repeated reloads, and bad input handling.
+leaking between frames, the world-space light, vertex normal length, the
+Blinn-Phong highlight, the clipper's vertex count, binary-mode texture
+loading, repeated reloads, and bad input handling.
 
 ## Writing a host
 

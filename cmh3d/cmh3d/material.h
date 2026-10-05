@@ -11,6 +11,8 @@ typedef struct {
   unsigned char* ptexture;
   unsigned int textureWidth,textureHeight;
   float uScale,vScale;
+  float* specTable;    /* x^ns lookup, built by the rasterizer on first use and freed by FreeWorld(): leave NULL */
+  float specTableNs;   /* the exponent the table was built for */
 } material;
 
 #ifdef __cplusplus

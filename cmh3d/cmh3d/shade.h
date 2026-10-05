@@ -23,7 +23,9 @@
 extern "C" {
 #endif
 
-void ShadeTriangle(triangle* ptri, light* plight, float* pZBuffer, int shadeState);
+/* once per frame, before ShadeTriangle(): derives the per-frame lighting vectors from the view-space light */
+void SetShadeLight(light* plight);
+void ShadeTriangle(triangle* ptri, float* pZBuffer, int shadeState);
 void SetAmbient(float red, float green, float blue);
 void Setppixel(void (*f)(int x, int y, int r, int g, int b));
 void line(int x0, int y0, int x1, int y1, int r, int g, int b);
