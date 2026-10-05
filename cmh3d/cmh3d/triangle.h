@@ -12,10 +12,9 @@ typedef struct {
   vertex* pvlist;
   unsigned int v0,v1,v2,cv,nv;
   vector normal;
-  int clipped,visible;
+  int visible;
   float farz;
   material* pmat;
-  float U0,V0,U1,V1,U2,V2;
 } triangle;
 
 #define LEFT               0

@@ -90,7 +90,7 @@ void Reset(camera* pcam) {
   pcam->V.x = 0.0;
   pcam->V.y = 1.0;
   pcam->V.z = 0.0;
-  pcam->V.y = 1.0;
+  pcam->V.h = 1.0;
   pcam->N.x = 0.0;
   pcam->N.y = 0.0;
   pcam->N.z = 1.0;

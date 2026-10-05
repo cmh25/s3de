@@ -3,7 +3,6 @@
 #include <stdio.h>
 #include <memory.h>
 #include <math.h>
-#include "shade.h"
 #include "vector.h"
 #include "vertex.h"
 #include "triangle.h"
@@ -50,7 +49,6 @@ static int m_ystart;
 static light* m_plight;
 static float* m_zbuffer;
 static int m_tritype;
-static int m_color;
 static int m_nhlines;
 static vector m_toLight;
 static int m_shadeState;
@@ -348,7 +346,7 @@ static void SetVertexColors() {
   vlist[m_ptri->v2].blue = m_blue;
 }
 
-static int CalcColorFromMaterial(int j) {
+static void CalcColorFromMaterial(int j) {
   int baseIndex, index0, index1, index2, index3;
   float u0, v0, u1, v1;
   float red0, red1, red2, red3, green0, green1, green2, green3, blue0, blue1, blue2, blue3;
@@ -458,8 +456,6 @@ static int CalcColorFromMaterial(int j) {
   if(m_hRed[j] > 255.0) m_hRed[j] = 255.0;
   if(m_hGreen[j] > 255.0) m_hGreen[j] = 255.0;
   if(m_hBlue[j] > 255.0) m_hBlue[j] = 255.0;
-
-  return 0;
 }
 
 static void line_(int x0, int y0, int x1, int y1,
@@ -506,7 +502,7 @@ static void ShadeFlat() {
   m_hRed[0] = m_red;
   m_hGreen[0] = m_green;
   m_hBlue[0] = m_blue;
-  m_color = CalcColorFromMaterial(0);
+  CalcColorFromMaterial(0);
 
   for(i=0;i<m_nhlines;i++) {
     if(m_ystart >= m_screenheight) break;;
@@ -552,7 +548,7 @@ static void ShadeFlatT() {
         m_hRed[j] = m_red;
         m_hGreen[j] = m_green;
         m_hBlue[j] = m_blue;
-        m_color = CalcColorFromMaterial(j);
+        CalcColorFromMaterial(j);
         pixel(m_pleftEdgeX[i] + j, m_ystart, (int)m_hRed[j], (int)m_hGreen[j], (int)m_hBlue[j]);
       }
     }
@@ -584,7 +580,7 @@ static void ShadeGouraud() {
     for(j=0;j<width;j++) {
       if(m_h1OverZ[j] < m_zbuffer[m_ystart * m_screenwidth + m_pleftEdgeX[i] + j]) {
         m_zbuffer[m_ystart * m_screenwidth + m_pleftEdgeX[i] + j] = m_h1OverZ[j];
-        m_color = CalcColorFromMaterial(j);
+        CalcColorFromMaterial(j);
         pixel(m_pleftEdgeX[i] + j, m_ystart, (int)m_hRed[j], (int)m_hGreen[j], (int)m_hBlue[j]);
       }
     }
@@ -593,7 +589,7 @@ static void ShadeGouraud() {
 }
 
 static void ShadePhong() {
-  int i,j,width,m_color;
+  int i,j,width;
   vector currentNormal;
 
   ScanEdgeUV();
@@ -630,7 +626,7 @@ static void ShadePhong() {
         m_hRed[j] = m_red;
         m_hGreen[j] = m_green;
         m_hBlue[j] = m_blue;
-        m_color = CalcColorFromMaterial(j);
+        CalcColorFromMaterial(j);
         pixel(m_pleftEdgeX[i] + j, m_ystart, (int)m_hRed[j], (int)m_hGreen[j], (int)m_hBlue[j]);
       }
     }

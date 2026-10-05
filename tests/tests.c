@@ -301,7 +301,7 @@ static void testRenderWithoutScreenSize(void) {
   long n;
   char detail[80] = "";
   if(!w) { report("render_without_screen_size", 0, "cannot build the scene"); return; }
-  if(!render(w, SHADE_FLAT | SHADE_AMBIENT | SHADE_ZBUFFER)) { report("render_without_screen_size", 0, GetLastEngineError()); FreeWorld(w); return; }
+  if(!render(w, SHADE_FLAT | SHADE_AMBIENT)) { report("render_without_screen_size", 0, GetLastEngineError()); FreeWorld(w); return; }
   n = countDrawn();
   sprintf(detail, "%ld pixels drawn", n);
   FreeWorld(w);
@@ -316,7 +316,7 @@ static void testTextureEdges(int bilinear) {
   int x0, x1, y0, y1, ok = 1;
   char detail[160] = "";
   if(!w) { report(name, 0, "cannot build the scene"); return; }
-  if(!render(w, SHADE_FLAT | SHADE_AMBIENT | SHADE_ZBUFFER | SHADE_TEXTURE | (bilinear ? SHADE_BILINEAR : 0))) {
+  if(!render(w, SHADE_FLAT | SHADE_AMBIENT | SHADE_TEXTURE | (bilinear ? SHADE_BILINEAR : 0))) {
     report(name, 0, GetLastEngineError()); FreeWorld(w); return;
   }
   if(!rowExtent(HEIGHT / 2, &x0, &x1) || !columnExtent(WIDTH / 2, &y0, &y1)) { ok = 0; strcpy(detail, "nothing drawn"); }
@@ -337,7 +337,7 @@ static void testTextureSeamV0(int bilinear) {
   int x0, x1, y0, y1, ok = 1;
   char detail[160] = "";
   if(!w) { report(name, 0, "cannot build the scene"); return; }
-  if(!render(w, SHADE_FLAT | SHADE_AMBIENT | SHADE_ZBUFFER | SHADE_TEXTURE | (bilinear ? SHADE_BILINEAR : 0))) {
+  if(!render(w, SHADE_FLAT | SHADE_AMBIENT | SHADE_TEXTURE | (bilinear ? SHADE_BILINEAR : 0))) {
     report(name, 0, GetLastEngineError()); FreeWorld(w); return;
   }
   if(!rowExtent(HEIGHT / 2, &x0, &x1) || !columnExtent(WIDTH / 2, &y0, &y1)) { ok = 0; strcpy(detail, "nothing drawn"); }
@@ -361,10 +361,10 @@ static void testSpecularNoLeak(void) {
   m = &w->materials[0];
   m->ka = 1.0f; m->kd = 1.0f; m->ks = 0.5f; m->ns = 150.0f;
   SetAmbient(0.3f, 0.3f, 0.3f);
-  if(!render(w, SHADE_FLAT | SHADE_AMBIENT | SHADE_DIFFUSE | SHADE_ZBUFFER | SHADE_TEXTURE)) { report("specular_no_leak", 0, GetLastEngineError()); FreeWorld(w); return; }
+  if(!render(w, SHADE_FLAT | SHADE_AMBIENT | SHADE_DIFFUSE | SHADE_TEXTURE)) { report("specular_no_leak", 0, GetLastEngineError()); FreeWorld(w); return; }
   memcpy(first, fb, sizeof fb);
-  render(w, SHADE_PHONG | SHADE_SPECULAR | SHADE_AMBIENT | SHADE_DIFFUSE | SHADE_ZBUFFER | SHADE_TEXTURE);
-  render(w, SHADE_FLAT | SHADE_AMBIENT | SHADE_DIFFUSE | SHADE_ZBUFFER | SHADE_TEXTURE);
+  render(w, SHADE_PHONG | SHADE_SPECULAR | SHADE_AMBIENT | SHADE_DIFFUSE | SHADE_TEXTURE);
+  render(w, SHADE_FLAT | SHADE_AMBIENT | SHADE_DIFFUSE | SHADE_TEXTURE);
   for(i = 0; i < (long)WIDTH * HEIGHT; i++) if(memcmp(&fb[i * 3], &first[i * 3], 3)) differing++;
   sprintf(detail, "%ld pixels changed after a phong frame", differing);
   FreeWorld(w);
@@ -395,7 +395,7 @@ static void testLightInWorldSpace(void) {
   GetRotateMatrix(m, 0.0f, 60.0f, 0.0f);     ApplyMatrix(cam, m);
   GetTranslateMatrix(m, 0.0f, 0.0f, -45.0f); ApplyMatrix(cam, m);
 
-  if(!render(w, SHADE_FLAT | SHADE_DIFFUSE | SHADE_ZBUFFER)) { report("light_in_world_space", 0, GetLastEngineError()); FreeWorld(w); return; }
+  if(!render(w, SHADE_FLAT | SHADE_DIFFUSE)) { report("light_in_world_space", 0, GetLastEngineError()); FreeWorld(w); return; }
   p = pixelAt(WIDTH / 2, HEIGHT / 2);
   ok = p[0] >= 196 && p[0] <= 200 && p[1] == p[0] && p[2] == p[0];
   if(!ok) sprintf(detail, "centre pixel is %s, expected about (200,200,200)", colourName(p));
@@ -410,7 +410,7 @@ static void testReloadCycles(void) {
   char detail[160] = "";
   for(cycle = 0; cycle < 40 && ok; cycle++) {
     world* w = makeQuad(UV_NORMAL, 0, 0, NULL);
-    if(!w || !render(w, SHADE_FLAT | SHADE_AMBIENT | SHADE_ZBUFFER)) { sprintf(detail, "cycle %d: %s", cycle, GetLastEngineError()); ok = 0; }
+    if(!w || !render(w, SHADE_FLAT | SHADE_AMBIENT)) { sprintf(detail, "cycle %d: %s", cycle, GetLastEngineError()); ok = 0; }
     FreeWorld(w);
   }
   if(ok) sprintf(detail, "%d cycles", cycle);

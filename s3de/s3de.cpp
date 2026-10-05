@@ -77,7 +77,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 
   HACCEL hAccelTable = LoadAccelerators(hInstance, MAKEINTRESOURCE(IDC_S3DE));
 
-  MSG msg;
+  MSG msg = {};
 
   for(;;) {
     while (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) {
@@ -89,6 +89,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
       }
     }
     if(msg.message == WM_QUIT) break;
+    if(IsIconic(ghwnd)) { WaitMessage(); continue; } /* nothing to show while minimized */
     ProcessInput();
     Render();
   }
@@ -97,12 +98,9 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
   RECT rs, rt;
-  static CHOOSECOLOR cc;
-  static COLORREF custom[16] = { RGB(0,0,0) };
-  char filename[512] = "";
   int rtHeight, sbHeight, x, y, width, height;
   OPENFILENAME ofn;
-  char sz[256];
+  char sz[1024];
   world* nw;
 
   switch(message) {
@@ -124,6 +122,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
   case WM_SIZE:
     SendMessage(hwndSB, WM_SIZE, wParam, lParam);
     SendMessage(hwndTB, WM_SIZE, wParam, lParam);
+    if(wParam == SIZE_MINIMIZED) break; /* keep everything; the main loop pauses while minimized */
     GetClientRect(hWnd, &gr);
     GetWindowRect(hwndSB, &rs);
     GetWindowRect(hwndTB, &rt);
@@ -133,14 +132,16 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
     y = rtHeight;
     width = gr.right - gr.left;
     height = gr.bottom - gr.top - rtHeight - sbHeight - 1;
+    if(pbuf) free(pbuf);
+    pbuf = NULL;
+    gvieww = gviewh = 0; /* Render() draws nothing until there is a buffer again */
+    if(width <= 0 || height <= 0) break; /* the toolbar and status bar leave no room */
     SetWindowPos(hwndV, HWND_TOP, x, y, width, height, SWP_SHOWWINDOW);
     SendMessage(hwndV, WM_SIZE, wParam, lParam);
     SetScreenW(width);
     SetScreenH(height);
-    if(pbuf) free(pbuf);
     pbuf = (uint32_t*)malloc(sizeof(uint32_t) * width * height);
-    gvieww = width;
-    gviewh = height;
+    if(pbuf) { gvieww = width; gviewh = height; }
     break;
   case WM_COMMAND:
     {
@@ -155,7 +156,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
       case ID_FILE_OPEN:
         ZeroMemory(&ofn, sizeof(ofn));
         ofn.lStructSize = sizeof(ofn);
-        ofn.hwndOwner = NULL;
+        ofn.hwndOwner = hWnd;
         ofn.lpstrFile = sz;
         ofn.lpstrFile[0] = '\0';
         ofn.nMaxFile = sizeof(sz);
@@ -470,32 +471,31 @@ void ppixel(int x, int y, int r, int g, int b) {
 }
 
 void Render() {
-  RECT r;
   HDC dc;
   HBITMAP bm, bmo;
   char sbt[512];
   float tt;
   static float ts = 0.0f;
   int w, h, ok;
-  int ss = GetShadeState();
+
+  if(!pbuf || gvieww <= 0 || gviewh <= 0) return; /* no room to draw, see WM_SIZE */
+  w = gvieww;
+  h = gviewh;
 
   timer_start();
 
   /* draw to buffer */
-  GetWindowRect(hwndV, &r);
   dc = GetDC(hwndV);
   hdc = CreateCompatibleDC(dc);
-  bm = CreateCompatibleBitmap(dc, r.right, r.bottom);
+  bm = CreateCompatibleBitmap(dc, w, h);
   bmo = (HBITMAP)SelectObject(hdc, bm);
-  w = r.right - r.left;
-  h = r.bottom - r.top;
   memset(pbuf, 0x666666, sizeof(uint32_t) * w * h);
   ok = DrawScene(gworld);
   if(ok) {
     BITMAPINFOHEADER bi = { sizeof(bi), w, h, 1, 32, BI_RGB };
     SetDIBitsToDevice(hdc, 0, 0, w, h, 0, 0, 0, h, pbuf,
       (BITMAPINFO*)&bi, DIB_RGB_COLORS);
-    BitBlt(dc, 0, 0, r.right, r.bottom, hdc, 0, 0, SRCCOPY);
+    BitBlt(dc, 0, 0, w, h, hdc, 0, 0, SRCCOPY);
   }
   SelectObject(hdc, bmo);
   DeleteDC(hdc);
@@ -507,17 +507,6 @@ void Render() {
     PostQuitMessage(1);
     return;
   }
-
-  /* draw to dc */
-  //hdc = GetDC(hwndV);
-  //GetWindowRect(hwndV, &r);
-  //r.right -= r.left;
-  //r.bottom -= r.top;
-  //r.left = 0;
-  //r.top = 0;
-  //FillRect(hdc, &r, (HBRUSH)GetStockObject(GRAY_BRUSH));
-  //DrawScene(gworld);
-  //ReleaseDC(hwndV, hdc);
 
   tt = timer_stop();
   ts += tt;

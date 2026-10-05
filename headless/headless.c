@@ -8,7 +8,7 @@
    usage: headless model.3ds out.ppm [shade] [rotx] [roty] [zoom] [px py pz]
 
      shade      shade state flags as a hex number, see cmh3d/shade.h
-                (default 4e4: flat, ambient, diffuse, z-buffer, textured)
+                (default 4c4: flat, ambient, diffuse, textured)
      rotx roty  rotation about the x and y axes in degrees (default 25, -30)
      zoom       1.0 fits the model's bounding sphere to the view (default 1.2)
      px py pz   if given, the camera is placed at this world position looking
@@ -56,7 +56,7 @@ static int writePpm(const char* fileName) {
 int main(int argc, char** argv) {
   const char* model = argc > 1 ? argv[1] : NULL;
   const char* out   = argc > 2 ? argv[2] : NULL;
-  int shade   = argc > 3 ? (int)strtol(argv[3], NULL, 16) : (SHADE_FLAT | SHADE_AMBIENT | SHADE_DIFFUSE | SHADE_ZBUFFER | SHADE_TEXTURE);
+  int shade   = argc > 3 ? (int)strtol(argv[3], NULL, 16) : (SHADE_FLAT | SHADE_AMBIENT | SHADE_DIFFUSE | SHADE_TEXTURE);
   float rotx  = argc > 4 ? (float)atof(argv[4]) : 25.0f;
   float roty  = argc > 5 ? (float)atof(argv[5]) : -30.0f;
   float zoom  = argc > 6 ? (float)atof(argv[6]) : 1.2f;

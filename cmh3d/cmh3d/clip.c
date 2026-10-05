@@ -105,7 +105,7 @@ int ClipPolyToPlane(plane* p, vertex* vList, int count) {
 
   /* check if the polygon is completely clipped or not at all clipped */
   polyClipNone = 0;
-  polyClipAll = 0;
+  polyClipAll = ~0; /* and-ed down to the plane's bit if every vertex is outside it */
   for(i=0;i<count;i++) {
     polyClipNone |= vList[i].clipped;
     polyClipAll &= vList[i].clipped;

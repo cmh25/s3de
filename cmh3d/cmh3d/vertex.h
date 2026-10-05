@@ -8,9 +8,8 @@ typedef struct {
   int clipped;
   vector normal;
   float red,green,blue;
-  int color;
   unsigned int fncount;
-  int ix,iy,iz;
+  int ix,iy;
   float u,v;
 } vertex;
 

@@ -3,7 +3,6 @@
 #include <stdio.h>
 #include <memory.h>
 #include <math.h>
-#include "world.h"
 #include "3d.h"
 #include "vertex.h"
 #include "vector.h"
@@ -18,9 +17,9 @@
 #include "3ds.h"
 #include "engineerror.h"
 
-static vertex *vlist0,*vlist1,*vlist2,*tnvlist,*vnvlist;
-static triangle *tlist0,*tlist1,*tlist2,*tlist3,**tpa;
-static unsigned int vcount0,vcount1,vcount2,tcount0,tcount1,tcount2,clippedvcount,clippedtcount,culltcount,tnvcount,vnvcount;
+static vertex *vlist0,*vlist2,*tnvlist,*vnvlist;   /* the concatenated world, its clipped copy, and the normal lines */
+static triangle *tlist0,*tlist2,**tpa;
+static unsigned int vcount0,vcount2,tcount0,tcount2,clippedvcount,clippedtcount,culltcount,tnvcount,vnvcount;
 static unsigned int vcap2,tcap2; /* capacities of vlist2 and tlist2 */
 static world* pw;
 static camera* pcam;
@@ -82,12 +81,10 @@ static void FreeWorldContents(world* w) {
 void FreeWorld(world* w) {
   if(!w) return;
   if(vlist0) { free(vlist0); vlist0 = 0; }
-  if(vlist1) { free(vlist1); vlist1 = 0; }
   if(vlist2) { free(vlist2); vlist2 = 0; }
   if(tlist0) { free(tlist0); tlist0 = 0; }
-  if(tlist1) { free(tlist1); tlist1 = 0; }
   if(tlist2) { free(tlist2); tlist2 = 0; }
-  vcount0 = vcount1 = vcount2 = tcount0 = tcount1 = tcount2 = clippedvcount = 0;
+  vcount0 = vcount2 = tcount0 = tcount2 = clippedvcount = 0;
   vcap2 = tcap2 = 0;
   FreeWorldContents(w);
   /* a host may load a new world before freeing the old one, so only forget
@@ -154,7 +151,7 @@ world* InitializeWorld(char *fn) {
   w->lightList[1].shineAtVertex.h = 1.0;
 
   SetAmbient(0.3f, 0.3f, 0.3f);
-  SetShadeState(SHADE_FLAT | SHADE_AMBIENT | SHADE_DIFFUSE | SHADE_ZBUFFER | SHADE_TEXTURE);
+  SetShadeState(SHADE_FLAT | SHADE_AMBIENT | SHADE_DIFFUSE | SHADE_TEXTURE);
 
   if(fn && !Read3dsFile(fn,w)) {
     /* Read3dsFile() has set the error message */
@@ -196,7 +193,6 @@ static int Concatenate() {
   pw->tlist = tlist0;
   vcount0 = pw->vcount;
   tcount0 = pw->tcount;
-  if(vcount1 < vcount0) vcount1 = vcount0;
 
   for(i=0;i<pw->objectCount;i++) {
     memcpy(&pw->vlist[vi], pw->objectList[i].vlist, sizeof(vertex)* pw->objectList[i].vcount);
@@ -225,14 +221,15 @@ static void WorldToView() {
   MatrixMultiply1x4_4x4(&viewLight.shineAtVertex, pcam->viewMatrix);
 }
 
+/* marks a triangle whose three vertices all lie outside the same clip plane as
+not visible, so the later stages can skip it. Clip() makes the real decision;
+this is only a cheap early out, plus the counts shown in the status bar */
 static void PreClip() {
   unsigned int i;
   vertex* vlist = pw->vlist;
   triangle* tlist = pw->tlist;
   unsigned int cvc = 0, ctc = 0;
-  static unsigned int mt = 32;
 
-  /* clip vertex list */
   for(i=0;i<pw->vcount;i++) {
     vlist[i].clipped = 0;
     ClipVertexToPlane(&pcam->clipPlanes[0], &vlist[i]);
@@ -245,45 +242,9 @@ static void PreClip() {
   }
   clippedvcount = cvc;
 
-  tcount1 = 0;
-  /* pass 1 - clip triangle list */
   for(i=0;i<pw->tcount;i++) {
-    tlist[i].clipped = vlist[tlist[i].v0].clipped
-             | vlist[tlist[i].v1].clipped
-             | vlist[tlist[i].v2].clipped;
-
-    if(vlist[tlist[i].v0].clipped & vlist[tlist[i].v1].clipped & vlist[tlist[i].v2].clipped) {
-      /* all vertices share at least one common clip plane */
-      tlist[i].visible = 0;
-    }
-    else {
-      /* this triangle may be visible. all its vertices are clipped,
-      but part of it may intersect the view volume */
-      tlist[i].visible = 1;
-      tcount1++;
-    }
-  }
-
-  /* pass 2 */
-  for(i=0;i<pw->tcount;i++) {
-    /* if a triangle is visible, none of its vertices can be clipped */
-    if(tlist[i].visible) {
-      vlist[tlist[i].v0].clipped = CLIPPED_NONE;
-      vlist[tlist[i].v1].clipped = CLIPPED_NONE;
-      vlist[tlist[i].v2].clipped = CLIPPED_NONE;
-    }
-  }
-
-  /* pass 3 */
-  for(i=0;i<pw->tcount;i++) {
-    /* if any triangle that is not visible has a vertex
-    that is CLIPPED_NONE, it must be visible. */
-    if(!tlist[i].visible) {
-      if(!(vlist[tlist[i].v0].clipped & vlist[tlist[i].v1].clipped & vlist[tlist[i].v2].clipped)) {
-        tlist[i].visible = 1;
-      }
-      else ctc++;
-    }
+    tlist[i].visible = !(vlist[tlist[i].v0].clipped & vlist[tlist[i].v1].clipped & vlist[tlist[i].v2].clipped);
+    if(!tlist[i].visible) ctc++;
   }
   clippedtcount = ctc;
 }

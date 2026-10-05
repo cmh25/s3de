@@ -10,7 +10,7 @@
 #define SHADE_FLAT              0x0004
 #define SHADE_GOURAUD           0x0008
 #define SHADE_PHONG             0x0010
-#define SHADE_ZBUFFER           0x0020
+/* 0x0020 was SHADE_ZBUFFER; the z-buffer is always on */
 #define SHADE_AMBIENT           0x0040
 #define SHADE_DIFFUSE           0x0080
 #define SHADE_SPECULAR          0x0100
