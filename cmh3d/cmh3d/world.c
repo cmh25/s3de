@@ -16,6 +16,7 @@
 #include "light.h"
 #include "material.h"
 #include "3ds.h"
+#include "engineerror.h"
 
 static vertex *vlist0,*vlist1,*vlist2,*tnvlist,*vnvlist;
 static triangle *tlist0,*tlist1,*tlist2,*tlist3,**tpa;
@@ -64,8 +65,22 @@ void SetTNLen(float l) { m_tnlen = l; }
 float GetVNLen() { return m_vnlen; }
 void SetVNLen(float l) { m_vnlen = l; }
 
-void FreeWorld(world* w) {
+/* frees what a world owns: its materials' names and textures, its objects' lists, and itself */
+static void FreeWorldContents(world* w) {
   unsigned int i;
+  for(i=0;i<w->matCount;i++) {
+    if(w->materials[i].ptexture) free(w->materials[i].ptexture);
+    if(w->materials[i].name) free(w->materials[i].name);
+  }
+  for(i=0;i<w->objectCount;i++) {
+    if(w->objectList[i].vlist) free(w->objectList[i].vlist);
+    if(w->objectList[i].tlist) free(w->objectList[i].tlist);
+  }
+  free(w);
+}
+
+void FreeWorld(world* w) {
+  if(!w) return;
   if(vlist0) { free(vlist0); vlist0 = 0; }
   if(vlist1) { free(vlist1); vlist1 = 0; }
   if(vlist2) { free(vlist2); vlist2 = 0; }
@@ -74,24 +89,17 @@ void FreeWorld(world* w) {
   if(tlist2) { free(tlist2); tlist2 = 0; }
   vcount0 = vcount1 = vcount2 = tcount0 = tcount1 = tcount2 = clippedvcount = 0;
   vcap2 = tcap2 = 0;
-  for(i=0;i<w->matCount;i++) {
-    if(w->materials[i].ptexture) {
-      free(w->materials[i].ptexture);
-    }
-  }
-  for(i=0;i<w->objectCount;i++) {
-    if(w->objectList[i].vlist)
-      free(w->objectList[i].vlist);
-    if(w->objectList[i].tlist)
-      free(w->objectList[i].tlist);
-  }
-  free(w);
-  pw = 0;
+  FreeWorldContents(w);
+  /* a host may load a new world before freeing the old one, so only forget
+  the current world when it is the one being freed */
+  if(pw == w) pw = 0;
 }
 
 world* InitializeWorld(char *fn) {
-  world* w = (world*)calloc(1,sizeof(world));
-  if(!w) return 0;
+  world* w;
+  ClearEngineError();
+  w = (world*)calloc(1,sizeof(world));
+  if(!w) { SetEngineError("out of memory allocating the world"); return NULL; }
   w->cameraCount = 3;
   w->currentCamIndex = 0;
   w->cameraList[0].locationVertex.x = 0.0;
@@ -149,8 +157,9 @@ world* InitializeWorld(char *fn) {
   SetShadeState(SHADE_FLAT | SHADE_AMBIENT | SHADE_DIFFUSE | SHADE_ZBUFFER | SHADE_TEXTURE);
 
   if(fn && !Read3dsFile(fn,w)) {
-    fprintf(stderr, "Failed to read: %s\n", fn);
-    exit(1);
+    /* Read3dsFile() has set the error message */
+    FreeWorldContents(w);
+    return NULL;
   }
   pw = w;
   /* derive the view plane height and the clip planes from the current screen
@@ -159,7 +168,7 @@ world* InitializeWorld(char *fn) {
   return w;
 }
 
-static void Concatenate() {
+static int Concatenate() {
   unsigned int i, j, vi=0, ti=0;
 
   /* concatenate all the objects' vlists and tlists into the world vlist and tlist
@@ -172,10 +181,16 @@ static void Concatenate() {
     pw->tcount += pw->objectList[i].tcount;
   }
 
-  if(!vlist0 || vcount0 < pw->vcount) vlist0 = realloc(vlist0, pw->vcount * sizeof(vertex));
-  if(!vlist0) { printf("malloc failed in Concatenate()\n"); exit(1); }
-  if(!tlist0 || tcount0 < pw->tcount) tlist0 = realloc(tlist0, pw->tcount * sizeof(triangle));
-  if(!tlist0) { printf("malloc failed in Concatenate()\n"); exit(1); }
+  if(pw->vcount && (!vlist0 || vcount0 < pw->vcount)) {
+    vertex* grown = (vertex*)realloc(vlist0, pw->vcount * sizeof(vertex));
+    if(!grown) { SetEngineError("out of memory for %u vertices in Concatenate()", pw->vcount); return 0; }
+    vlist0 = grown;
+  }
+  if(pw->tcount && (!tlist0 || tcount0 < pw->tcount)) {
+    triangle* grown = (triangle*)realloc(tlist0, pw->tcount * sizeof(triangle));
+    if(!grown) { SetEngineError("out of memory for %u triangles in Concatenate()", pw->tcount); return 0; }
+    tlist0 = grown;
+  }
 
   pw->vlist = vlist0;
   pw->tlist = tlist0;
@@ -194,6 +209,7 @@ static void Concatenate() {
     vi += pw->objectList[i].vcount;
     ti += pw->objectList[i].tcount;
   }
+  return 1;
 }
 
 static void WorldToView() {
@@ -272,7 +288,7 @@ static void PreClip() {
   clippedtcount = ctc;
 }
 
-static void GenerateNormals() {
+static int GenerateNormals() {
   unsigned int i;
   vector v0, v1;
   vertex* vlist = pw->vlist;
@@ -324,8 +340,11 @@ static void GenerateNormals() {
   }
 
   if(shadeState & SHADE_TNORMAL) {
-    if(!tnvlist || tnvcount < 2 * pw->tcount) tnvlist = realloc(tnvlist, 2 * pw->tcount * sizeof(vertex));
-    if(!tnvlist) { printf("malloc failed in GenerateNormals()\n"); exit(1); }
+    if(pw->tcount && (!tnvlist || tnvcount < 2 * pw->tcount)) {
+      vertex* grown = (vertex*)realloc(tnvlist, 2 * pw->tcount * sizeof(vertex));
+      if(!grown) { SetEngineError("out of memory for normal lines in GenerateNormals()"); return 0; }
+      tnvlist = grown;
+    }
 
     vlist = pw->vlist;
     tlist = pw->tlist;
@@ -368,8 +387,11 @@ static void GenerateNormals() {
   }
 
   if(shadeState & SHADE_VNORMAL) {
-    if(!vnvlist || vnvcount < 2 * pw->vcount) vnvlist = realloc(vnvlist, 2 * pw->vcount * sizeof(vertex));
-    if(!vnvlist) { printf("malloc failed in GenerateNormals()\n"); exit(1); }
+    if(pw->vcount && (!vnvlist || vnvcount < 2 * pw->vcount)) {
+      vertex* grown = (vertex*)realloc(vnvlist, 2 * pw->vcount * sizeof(vertex));
+      if(!grown) { SetEngineError("out of memory for normal lines in GenerateNormals()"); return 0; }
+      vnvlist = grown;
+    }
 
     vlist = pw->vlist;
     vnvcount = 0;
@@ -393,6 +415,7 @@ static void GenerateNormals() {
       nv->clipped = 0;
     }
   }
+  return 1;
 }
 
 static void BackFaceRemove() {
@@ -416,7 +439,7 @@ static void BackFaceRemove() {
   culltcount = ctc;
 }
 
-static void Clip() {
+static int Clip() {
   unsigned int i,j,cvc,v0i,v1i,v2i;
   triangle* tlist = pw->tlist;
   vertex* vlist = pw->vlist;
@@ -434,16 +457,22 @@ static void Clip() {
     with up to MAX_CLIPPED_VERTICES vertices, fanned into two fewer triangles.
     the capacities persist across frames and are reset by FreeWorld() */
     if(vcount2 + MAX_CLIPPED_VERTICES > vcap2) {
-      vcap2 = vcap2 ? vcap2 * 2 : 256;
-      while(vcount2 + MAX_CLIPPED_VERTICES > vcap2) vcap2 *= 2;
-      vlist2 = (vertex*)realloc(vlist2, sizeof(vertex) * vcap2);
-      if(!vlist2) { fprintf(stderr, "malloc failed for newVList in Clip()\n"); exit(1); }
+      unsigned int cap = vcap2 ? vcap2 * 2 : 256;
+      vertex* grown;
+      while(vcount2 + MAX_CLIPPED_VERTICES > cap) cap *= 2;
+      grown = (vertex*)realloc(vlist2, sizeof(vertex) * cap);
+      if(!grown) { SetEngineError("out of memory for %u clipped vertices in Clip()", cap); return 0; }
+      vlist2 = grown;
+      vcap2 = cap;
     }
     if(tcount2 + MAX_CLIPPED_VERTICES - 2 > tcap2) {
-      tcap2 = tcap2 ? tcap2 * 2 : 256;
-      while(tcount2 + MAX_CLIPPED_VERTICES - 2 > tcap2) tcap2 *= 2;
-      tlist2 = (triangle*)realloc(tlist2, sizeof(triangle) * tcap2);
-      if(!tlist2) { fprintf(stderr, "malloc failed for newTList in Clip()\n"); exit(1); }
+      unsigned int cap = tcap2 ? tcap2 * 2 : 256;
+      triangle* grown;
+      while(tcount2 + MAX_CLIPPED_VERTICES - 2 > cap) cap *= 2;
+      grown = (triangle*)realloc(tlist2, sizeof(triangle) * cap);
+      if(!grown) { SetEngineError("out of memory for %u clipped triangles in Clip()", cap); return 0; }
+      tlist2 = grown;
+      tcap2 = cap;
     }
 
     /* add visible vertices and triangles */
@@ -476,6 +505,7 @@ static void Clip() {
     for(i = 0; i < vnvcount; i += 2)
       ClipLineToView(&vnvlist[i], &vnvlist[i + 1], pcam);
   }
+  return 1;
 }
 
 static void Perspective() {
@@ -509,16 +539,18 @@ static int compare(const void* v0, const void* v1) {
   else if(!t0->visible && t1->visible) return 1;
   return t0->farz > t1->farz ? -1 : 1;
 }
-static void DepthSort() {
+static int DepthSort() {
   unsigned int i;
   triangle* tlist = pw->tlist;
   vertex* vlist = pw->vlist;
-  static unsigned int mt = 0;
+  static unsigned int mt = 0; /* capacity of tpa */
 
-  if(!tpa || pw->tcount > mt) tpa = realloc(tpa, pw->tcount * sizeof(triangle*));
-  if(!tpa) { fprintf(stderr, "malloc failed for tpa in DepthSort()\n"); exit(1); }
-
-  mt = pw->tcount;
+  if(pw->tcount > mt) {
+    triangle** grown = (triangle**)realloc(tpa, pw->tcount * sizeof(triangle*));
+    if(!grown) { SetEngineError("out of memory for %u triangle pointers in DepthSort()", pw->tcount); return 0; }
+    tpa = grown;
+    mt = pw->tcount;
+  }
 
   /* set up the pointers and farz's */
   for(i=0;i<pw->tcount;i++) {
@@ -527,7 +559,8 @@ static void DepthSort() {
   }
 
   /* sort the array of triangle pointers */
-  qsort(tpa, pw->tcount, sizeof(triangle*), compare);
+  if(pw->tcount > 1) qsort(tpa, pw->tcount, sizeof(triangle*), compare);
+  return 1;
 }
 
 static void ViewToScreen() {
@@ -561,17 +594,19 @@ static void ViewToScreen() {
   }
 }
 
-static void Render() {
+static int Render() {
   unsigned int i;
   vertex* vlist = pw->vlist;
-  triangle* tlist = pw->tlist;
   unsigned int zbuffsize = screenwidth * screenheight;
-  static unsigned int zz = 0;
+  static unsigned int zz = 0; /* capacity of zbuffer */
 
-  if(!zbuffer || zz < zbuffsize) { zz = zbuffsize; zbuffer = realloc(zbuffer, sizeof(float)*zz); }
-  if(!zbuffer) { fprintf(stderr, "malloc failed for zbuffer in Render()\n"); exit(1); }
-  memset(zbuffer, 0, sizeof(float) * zbuffsize);
-  zz = zbuffsize;
+  if(zbuffsize > zz) {
+    float* grown = (float*)realloc(zbuffer, sizeof(float) * zbuffsize);
+    if(!grown) { SetEngineError("out of memory for a %dx%d z-buffer in Render()", screenwidth, screenheight); return 0; }
+    zbuffer = grown;
+    zz = zbuffsize;
+  }
+  if(zbuffer) memset(zbuffer, 0, sizeof(float) * zbuffsize);
 
   /* set integer vertices */
   for(i=0;i<pw->vcount;i++) {
@@ -598,19 +633,22 @@ static void Render() {
       line3dz(&vnvlist[i], &vnvlist[i+1], zbuffer);
     }
   }
+  return 1;
 }
 
-void DrawScene(world* w) {
+int DrawScene(world* w) {
+  ClearEngineError();
+  if(!w) { SetEngineError("DrawScene() called without a world"); return 0; }
   pw = w;
   pcam = &w->cameraList[w->currentCamIndex];
-  Concatenate();
+  if(!Concatenate()) return 0;
   WorldToView();
   PreClip();
-  GenerateNormals();
+  if(!GenerateNormals()) return 0;
   BackFaceRemove();
-  Clip();
+  if(!Clip()) return 0;
   Perspective();
-  DepthSort();
+  if(!DepthSort()) return 0;
   ViewToScreen();
-  Render();
+  return Render();
 }

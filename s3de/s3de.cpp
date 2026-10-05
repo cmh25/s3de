@@ -103,6 +103,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
   int rtHeight, sbHeight, x, y, width, height;
   OPENFILENAME ofn;
   char sz[256];
+  world* nw;
 
   switch(message) {
   case WM_CREATE:
@@ -115,6 +116,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
     SetScreenH(gr.bottom - (rs.bottom - rs.top));
     Setppixel(ppixel);
     gworld = InitializeWorld(0);
+    if(!gworld) {
+      MessageBoxA(hWnd, GetLastEngineError(), "s3de", MB_OK | MB_ICONERROR);
+      return -1; /* abort window creation */
+    }
     break;
   case WM_SIZE:
     SendMessage(hwndSB, WM_SIZE, wParam, lParam);
@@ -163,11 +168,17 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         ofn.Flags = 0;
         if(!GetOpenFileName(&ofn)) return 0;
 
-        /* free the old world only once there is a new file to load: the main
-        loop keeps rendering gworld, so freeing it before a dialog that can be
-        cancelled left it rendering freed memory */
+        /* load the new world before freeing the old one: the main loop keeps
+        rendering gworld, so a cancelled dialog or a bad file must leave it alone */
+        nw = InitializeWorld(sz);
+        if(!nw) {
+          MessageBoxA(hWnd, GetLastEngineError(), "s3de", MB_OK | MB_ICONERROR);
+          break;
+        }
+        if(GetLastEngineError()[0]) /* loaded, but with a complaint such as a texture that failed */
+          MessageBoxA(hWnd, GetLastEngineError(), "s3de", MB_OK | MB_ICONWARNING);
         FreeWorld(gworld);
-        gworld = InitializeWorld(sz);
+        gworld = nw;
         GetClientRect(hWnd, &gr);
         GetWindowRect(hwndSB, &rs);
         GetWindowRect(hwndTB, &rt);
@@ -465,7 +476,7 @@ void Render() {
   char sbt[512];
   float tt;
   static float ts = 0.0f;
-  int w, h;
+  int w, h, ok;
   int ss = GetShadeState();
 
   timer_start();
@@ -479,15 +490,23 @@ void Render() {
   w = r.right - r.left;
   h = r.bottom - r.top;
   memset(pbuf, 0x666666, sizeof(uint32_t) * w * h);
-  DrawScene(gworld);
-  BITMAPINFOHEADER bi = { sizeof(bi), w, h, 1, 32, BI_RGB };
-  SetDIBitsToDevice(hdc, 0, 0, w, h, 0, 0, 0, h, pbuf,
-    (BITMAPINFO*)&bi, DIB_RGB_COLORS);
-  BitBlt(dc, 0, 0, r.right, r.bottom, hdc, 0, 0, SRCCOPY);
+  ok = DrawScene(gworld);
+  if(ok) {
+    BITMAPINFOHEADER bi = { sizeof(bi), w, h, 1, 32, BI_RGB };
+    SetDIBitsToDevice(hdc, 0, 0, w, h, 0, 0, 0, h, pbuf,
+      (BITMAPINFO*)&bi, DIB_RGB_COLORS);
+    BitBlt(dc, 0, 0, r.right, r.bottom, hdc, 0, 0, SRCCOPY);
+  }
   SelectObject(hdc, bmo);
   DeleteDC(hdc);
   ReleaseDC(hwndV, dc);
   DeleteObject(bm);
+  if(!ok) {
+    /* only an allocation failure gets here: tell the user and stop the render loop */
+    MessageBoxA(ghwnd, GetLastEngineError(), "s3de", MB_OK | MB_ICONERROR);
+    PostQuitMessage(1);
+    return;
+  }
 
   /* draw to dc */
   //hdc = GetDC(hwndV);

@@ -11,6 +11,7 @@ window, a file, a terminal. Two hosts are included:
 - `headless`: a console program that renders a model to a `.ppm` image using
   only the C runtime. It is the smallest possible host and doubles as a check
   that the engine stays independent of the platform.
+- `tests`: regression tests that render hand-built scenes and check pixels.
 
 Models are loaded with the bundled lib3ds. Textures must be 24-bit `.bmp`
 files in the same folder as the `.3ds` file.
@@ -31,6 +32,15 @@ Optional arguments after the output name: shade flags as a hex number (see
 position for a first-person view instead of an orbit. Run it without arguments
 for the usage line.
 
+## Tests
+
+    x64\Release\tests.exe
+
+Prints one line per test and exits with the number of failures. The tests
+cover texture edge orientation and the exact-zero seam, specular state
+leaking between frames, the world-space light, the clipper's vertex count,
+binary-mode texture loading, repeated reloads, and bad input handling.
+
 ## Writing a host
 
 1. `Setppixel(fn)` with your pixel callback. The engine only calls it with
@@ -39,6 +49,10 @@ for the usage line.
 3. `SetScreenW(w)` and `SetScreenH(h)` whenever the output size changes.
 4. Position the camera (see `ProcessInput()` in `s3de/s3de.cpp` or
    `headless/headless.c`) and call `DrawScene(world)` once per frame.
+5. The engine never exits the process. `InitializeWorld()` returns NULL and
+   `DrawScene()` returns 0 on failure, with the reason in
+   `GetLastEngineError()`. After a successful load a non-empty message is a
+   warning, such as a texture that could not be read.
 
 ![alt text](screenshots/0.png?raw=true "")
 

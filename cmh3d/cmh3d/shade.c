@@ -116,8 +116,7 @@ static void ScanEdge1OverZ() {
   case TT_PIXEL:
     break;
   default:
-    fprintf(stderr, "unknown m_tritype in ScanEdge1OverZ()\n");
-    exit(1);
+    break; /* SortTriangle() only produces the types above */
   }
 }
 
@@ -171,8 +170,7 @@ static void ScanEdgeColors() {
   case TT_PIXEL:
     break;
   default:
-    fprintf(stderr, "unknown m_tritype in ScanEdgeColors()\n");
-    exit(1);
+    break;
   }
 }
 
@@ -229,8 +227,7 @@ static void ScanEdgeNormals() {
   case TT_PIXEL:
     break;
   default:
-    fprintf(stderr, "unknown m_tritype in ScanEdgeNormals()\n");
-    exit(1);
+    break;
   }
 }
 
@@ -281,8 +278,7 @@ static void ScanEdgeUV() {
   case TT_PIXEL:
     break;
   default:
-    fprintf(stderr, "unknown m_tritype in ScanEdgeUV()\n");
-    exit(1);
+    break;
   }
 }
 

@@ -78,7 +78,8 @@ int main(int argc, char** argv) {
   /* 1. tell the engine where to draw, 2. load the world, 3. tell it the output size */
   Setppixel(putPixel);
   w = InitializeWorld((char*)model);
-  if(!w) { fprintf(stderr, "out of memory\n"); return 1; }
+  if(!w) { fprintf(stderr, "%s\n", GetLastEngineError()); return 1; }
+  if(GetLastEngineError()[0]) fprintf(stderr, "warning: %s\n", GetLastEngineError());
   SetScreenW(WIDTH);
   SetScreenH(HEIGHT);
 
@@ -121,7 +122,7 @@ int main(int argc, char** argv) {
   }
 
   SetShadeState(shade);
-  DrawScene(w);
+  if(!DrawScene(w)) { fprintf(stderr, "%s\n", GetLastEngineError()); FreeWorld(w); return 1; }
 
   if(!writePpm(out)) { FreeWorld(w); return 1; }
   printf("%s: %u objects, %u vertices, %u triangles (%u clipped, %u culled) -> %s\n",

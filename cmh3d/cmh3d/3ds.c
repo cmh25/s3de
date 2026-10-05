@@ -15,116 +15,143 @@
 #include "vertex.h"
 #include "triangle.h"
 #include "material.h"
+#include "engineerror.h"
 
+static char* copyString(const char* s) {
+  size_t n = strlen(s) + 1;
+  char* copy = (char*)malloc(n);
+  if(copy) memcpy(copy, s, n);
+  return copy;
+}
+
+static void setMaterialDefaults(material* m) {
+  m->name = NULL;
+  m->r = 0.0f; m->g = 0.0f; m->b = 255.0f;
+  m->ka = 1.0f; m->kd = 1.0f; m->ks = 0.5f; m->ns = 150.0f;
+  m->ptexture = NULL;
+  m->textureWidth = m->textureHeight = 0;
+  m->uScale = m->vScale = 1.0f;
+}
+
+/* fills w's objects and materials from a .3ds file. returns 0 on failure with
+   the reason in GetLastEngineError(); the caller frees whatever was added.
+   a texture that cannot be loaded is not a failure: the material stays
+   untextured and the message is left for the host to show as a warning */
 int Read3dsFile(char* fn, world* w) {
-  unsigned int i, j, k;
+  const unsigned int maxObjects = sizeof(w->objectList) / sizeof(w->objectList[0]);
+  const unsigned int maxMaterials = sizeof(w->materials) / sizeof(w->materials[0]);
+  unsigned int j, k, n;
+  size_t len;
   Lib3dsFile* fp;
+  Lib3dsMesh* pmesh;
+  Lib3dsMaterial* pmat;
   char path[1000];
   char fullpath[1000];
+  material* m;
+  object* o;
 
   w->objectCount = 0;
+  w->matCount = 0;
   w->vcount = 0;
   w->tcount = 0;
 
+  if(strlen(fn) >= sizeof(path)) { SetEngineError("file name is too long: %s", fn); return 0; }
+
   fp = lib3ds_file_load(fn);
-  if(fp == NULL) {
-    fprintf(stderr, "\"%s\" is not a valid *.3ds filename\n", fn);
-    return 0;
-  }
+  if(fp == NULL) { SetEngineError("\"%s\" could not be opened as a .3ds file", fn); return 0; }
 
-  /* if we make it this far, fileName was valid. Therefore the path was
-     valid and we need to know what the path is to append the texture filenames
-     since the textures are required to be in the same folder as the *.3ds file */
+  /* textures are looked up next to the model, so keep the directory part of
+  the file name: everything up to and including the last separator, if any */
   strcpy(path, fn);
-  i=(int)strlen(path) - 1;
-#ifdef _WIN32
-  while(path[i] != '\\')path[i--] = '\0';
-#else
-  while (path[i] != '/')path[i--] = '\0';
-#endif
+  for(len = strlen(path); len > 0 && path[len-1] != '\\' && path[len-1] != '/'; len--) ;
+  path[len] = '\0';
 
-  Lib3dsMesh* pmesh = fp->meshes;
-  Lib3dsMaterial* pmat = fp->materials;
+  /* material 0 is used by faces that name no material */
+  m = &w->materials[0];
+  setMaterialDefaults(m);
+  m->name = copyString("default");
+  if(!m->name) { lib3ds_file_free(fp); SetEngineError("out of memory loading \"%s\"", fn); return 0; }
+  w->matCount = 1;
 
-  w->matCount = 0;
-  w->materials[w->matCount].name = "default";
-  w->materials[w->matCount].r = 0.0;
-  w->materials[w->matCount].g = 0.0;
-  w->materials[w->matCount].b = 255.0;
-  w->materials[w->matCount].ka = 1.0;
-  w->materials[w->matCount].kd = 1.0;
-  w->materials[w->matCount].ks = 0.5;
-  w->materials[w->matCount].ns = 150.0;
-  w->materials[w->matCount].ptexture = NULL;
-  w->materials[w->matCount].uScale = 0.0;
-  w->materials[w->matCount].vScale = 0.0;
-  w->matCount++;
-  for(i=1;pmat!=0;i++) {
-    w->matCount++;
-    w->materials[i].name = pmat->name;
-    w->materials[i].r = pmat->diffuse[0] * 255.0f;
-    w->materials[i].g = pmat->diffuse[1] * 255.0f;
-    w->materials[i].b = pmat->diffuse[2] * 255.0f;
-    w->materials[i].ka = 1.0;
-    w->materials[i].kd = 1.0;
-    w->materials[i].ks = 0.5;
-    w->materials[i].ns = 150.0;
-    w->materials[i].ptexture = 0;
-    if(pmat->texture1_map.name && pmat->texture1_map.name[0]) {
-      strcpy(fullpath, path);
-      loadTextureFromBmpFile(&w->materials[i], strcat(fullpath, pmat->texture1_map.name));
+  for(pmat = fp->materials; pmat != NULL; pmat = pmat->next) {
+    if(w->matCount >= maxMaterials) {
+      lib3ds_file_free(fp);
+      SetEngineError("\"%s\" has more than %u materials", fn, maxMaterials - 1);
+      return 0;
     }
-    w->materials[i].uScale = pmat->texture1_map.scale[0];
-    w->materials[i].vScale = pmat->texture1_map.scale[1];
-
-    pmat = pmat->next;
+    m = &w->materials[w->matCount];
+    setMaterialDefaults(m);
+    m->name = copyString(pmat->name); /* lib3ds frees its own copy below */
+    if(!m->name) { lib3ds_file_free(fp); SetEngineError("out of memory loading \"%s\"", fn); return 0; }
+    m->r = pmat->diffuse[0] * 255.0f;
+    m->g = pmat->diffuse[1] * 255.0f;
+    m->b = pmat->diffuse[2] * 255.0f;
+    m->uScale = pmat->texture1_map.scale[0];
+    m->vScale = pmat->texture1_map.scale[1];
+    w->matCount++;
+    if(pmat->texture1_map.name[0]) {
+      if(snprintf(fullpath, sizeof(fullpath), "%s%s", path, pmat->texture1_map.name) >= (int)sizeof(fullpath))
+        SetEngineError("texture path is too long: %s%s", path, pmat->texture1_map.name);
+      else
+        loadTextureFromBmpFile(m, fullpath);
+    }
   }
 
-  for(i=0;pmesh!=0;i++) {
+  for(pmesh = fp->meshes; pmesh != NULL; pmesh = pmesh->next) {
+    if(pmesh->points == 0 || pmesh->faces == 0) continue; /* nothing to draw */
+    if(w->objectCount >= maxObjects) {
+      lib3ds_file_free(fp);
+      SetEngineError("\"%s\" has more than %u meshes", fn, maxObjects);
+      return 0;
+    }
+    o = &w->objectList[w->objectCount];
+    o->vcount = pmesh->points;
+    o->tcount = pmesh->faces;
+    o->vlist = (vertex*)calloc(o->vcount, sizeof(vertex));
+    o->tlist = (triangle*)calloc(o->tcount, sizeof(triangle));
+    if(!o->vlist || !o->tlist) {
+      free(o->vlist); free(o->tlist);
+      o->vlist = NULL; o->tlist = NULL;
+      lib3ds_file_free(fp);
+      SetEngineError("out of memory for mesh \"%s\" in \"%s\"", pmesh->name, fn);
+      return 0;
+    }
     w->objectCount++;
-    w->vcount += pmesh->points;
-    w->tcount += pmesh->faces;
-    w->objectList[i].vcount = pmesh->points;
-    w->objectList[i].tcount = pmesh->faces;
-    w->objectList[i].vlist = calloc(w->objectList[i].vcount, sizeof(vertex));
-    if(w->objectList[i].vlist == NULL) {
-      fprintf(stderr, "malloc failed for vlist in Read3dsFile()!\n");
-      exit(1);
-    }
-    w->objectList[i].tlist = calloc(w->objectList[i].tcount, sizeof(triangle));
-    if(w->objectList[i].tlist == NULL) {
-      fprintf(stderr, "malloc failed for tlist in Read3dsFile()!\n");
-      exit(1);
-    }
+    w->vcount += o->vcount;
+    w->tcount += o->tcount;
 
     for(j=0;j<pmesh->points;j++) {
-      w->objectList[i].vlist[j].x = pmesh->pointL[j].pos[0];
-      w->objectList[i].vlist[j].y = pmesh->pointL[j].pos[2];
-      w->objectList[i].vlist[j].z = -pmesh->pointL[j].pos[1];
-      w->objectList[i].vlist[j].h = 1.0;
+      /* 3ds files are z-up, the engine is y-up */
+      o->vlist[j].x = pmesh->pointL[j].pos[0];
+      o->vlist[j].y = pmesh->pointL[j].pos[2];
+      o->vlist[j].z = -pmesh->pointL[j].pos[1];
+      o->vlist[j].h = 1.0f;
     }
 
     for(j=0;j<pmesh->faces;j++) {
-      w->objectList[i].tlist[j].v0 = pmesh->faceL[j].points[0];
-      w->objectList[i].tlist[j].v1 = pmesh->faceL[j].points[1];
-      w->objectList[i].tlist[j].v2 = pmesh->faceL[j].points[2];
-      w->objectList[i].tlist[j].pmat = &w->materials[0];
+      triangle* t = &o->tlist[j];
+      t->v0 = pmesh->faceL[j].points[0];
+      t->v1 = pmesh->faceL[j].points[1];
+      t->v2 = pmesh->faceL[j].points[2];
+      if(t->v0 >= o->vcount || t->v1 >= o->vcount || t->v2 >= o->vcount) {
+        lib3ds_file_free(fp);
+        SetEngineError("mesh \"%s\" in \"%s\" has a face that refers to a missing vertex", pmesh->name, fn);
+        return 0;
+      }
+      t->pmat = &w->materials[0];
       for(k=0;k<w->matCount;k++) {
-        if(!strcmp(pmesh->faceL[j].material, w->materials[k].name)) {
-          w->objectList[i].tlist[j].pmat = &w->materials[k];
-        }
+        if(!strcmp(pmesh->faceL[j].material, w->materials[k].name)) t->pmat = &w->materials[k];
       }
     }
 
-    for(j=0;j<pmesh->texels;j++) {
-      w->objectList[i].vlist[j].u = pmesh->texelL[j][0];
-      w->objectList[i].vlist[j].v = pmesh->texelL[j][1];
+    /* texture coordinates, one per point when the mesh has them */
+    n = pmesh->texels < pmesh->points ? pmesh->texels : pmesh->points;
+    for(j=0;j<n;j++) {
+      o->vlist[j].u = pmesh->texelL[j][0];
+      o->vlist[j].v = pmesh->texelL[j][1];
     }
-
-    pmesh = pmesh->next;
   }
 
   lib3ds_file_free(fp);
-
   return 1;
 }

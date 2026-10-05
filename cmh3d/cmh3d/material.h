@@ -2,7 +2,7 @@
 #define MATERIAL_H
 
 typedef struct {
-  char* name;
+  char* name;  /* heap allocated or NULL: FreeWorld() frees it, so never a literal */
   float r,g,b;
   float ka;  /* ambient coefficient */
   float kd;  /* diffuse coefficient */

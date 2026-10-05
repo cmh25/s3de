@@ -7,6 +7,7 @@
 #include "vertex.h"
 #include "triangle.h"
 #include "material.h"
+#include "engineerror.h"
 
 typedef struct {
   object objectList[1000];
@@ -23,8 +24,11 @@ extern "C" {
 #endif
 
 void FreeWorld(world* w);
+/* loads fn (or sets up an empty world when fn is NULL). returns NULL on
+   failure with the reason in GetLastEngineError() */
 world* InitializeWorld(char *fn);
-void DrawScene(world* w);
+/* renders one frame through the pixel callback. returns 0 on failure */
+int DrawScene(world* w);
 void SetShadeState(int st);
 int GetShadeState();
 int GetScreenW();
